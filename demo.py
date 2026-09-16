@@ -60,6 +60,15 @@ def main() -> None:
     print(f"  resting order id {order.id} @ 90, cancel -> {engine.cancel_order(symbol, order.id)}")
     print_book(engine, symbol)
 
+    print("5) The engine publishes a stream of execution events")
+    engine.on_trade(lambda t: print(f"  [live] {t.quantity} @ {t.price} (buy #{t.buy_order_id} / sell #{t.sell_order_id})"))
+    engine.submit_order(Order(side=Side.SELL, order_type=OrderType.LIMIT, price=105, quantity=3, symbol=symbol))
+    print("  submitting a crossing buy order -> the listener above fires live:")
+    engine.submit_order(Order(side=Side.BUY, order_type=OrderType.LIMIT, price=105, quantity=3, symbol=symbol))
+    print(f"\n  full trade history so far ({len(engine.trade_history(symbol))} trades):")
+    for t in engine.trade_history(symbol):
+        print(f"    {t}")
+
 
 if __name__ == "__main__":
     main()

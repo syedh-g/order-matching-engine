@@ -69,9 +69,9 @@ class Order:
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class Trade:
-    """A single execution resulting from matching two orders."""
+    """A single, immutable execution resulting from matching two orders."""
 
     symbol: str
     price: float

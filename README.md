@@ -9,6 +9,8 @@ A simple price-time priority order matching engine in pure Python (no dependenci
 - Partial fills, order resting, and cancellation
 - Multiple independent order books, keyed by symbol
 - Book depth snapshots (`best_bid`, `best_ask`, `spread`, `depth`)
+- A stream of execution events: every `Trade` is immutable (frozen), appended
+  to an engine-wide, queryable log, and broadcast to live subscribers
 
 ## Structure
 
@@ -43,6 +45,12 @@ engine.cancel_order("BTC-USD", order_id=1)
 
 # Inspect the book
 engine.order_book("BTC-USD").depth(levels=5)
+
+# Subscribe to the live execution stream — called synchronously as trades happen
+engine.on_trade(lambda trade: print("executed:", trade))
+
+# Or query the full, ordered trade history later (optionally filtered by symbol)
+engine.trade_history(symbol="BTC-USD")
 ```
 
 ## Run it

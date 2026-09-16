@@ -1,4 +1,5 @@
 """Unit tests for the matching engine. Run with: python -m unittest test_engine.py"""
+import dataclasses
 import unittest
 
 from matching_engine import MatchingEngine, Order, OrderStatus, OrderType, Side
@@ -172,6 +173,115 @@ class TestMultiSymbol(unittest.TestCase):
         self.assertEqual(trades, [])
         self.assertEqual(engine.order_book("AAA").best_ask(), 100)
         self.assertEqual(engine.order_book("BBB").best_bid(), 100)
+
+
+class TestTradeIsImmutable(unittest.TestCase):
+    def test_trade_fields_cannot_be_reassigned(self):
+        engine = MatchingEngine()
+        engine.submit_order(limit(Side.SELL, 100, 5))
+        trades = engine.submit_order(limit(Side.BUY, 100, 5))
+
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            trades[0].price = 999
+
+
+class TestTradeHistory(unittest.TestCase):
+    def test_history_accumulates_across_submissions_in_order(self):
+        engine = MatchingEngine()
+        engine.submit_order(limit(Side.SELL, 100, 2))
+        engine.submit_order(limit(Side.SELL, 101, 2))
+        engine.submit_order(limit(Side.BUY, 101, 4))  # sweeps both levels
+
+        history = engine.trade_history()
+        self.assertEqual(len(history), 2)
+        self.assertEqual([t.price for t in history], [100, 101])
+
+    def test_history_persists_after_being_returned_from_submit(self):
+        engine = MatchingEngine()
+        engine.submit_order(limit(Side.SELL, 100, 5))
+        engine.submit_order(limit(Side.BUY, 100, 5))
+
+        # trade_history is queryable independently, not just the return value
+        self.assertEqual(len(engine.trade_history()), 1)
+
+    def test_history_filters_by_symbol(self):
+        engine = MatchingEngine()
+        engine.submit_order(limit(Side.SELL, 100, 5, symbol="AAA"))
+        engine.submit_order(limit(Side.BUY, 100, 5, symbol="AAA"))
+        engine.submit_order(limit(Side.SELL, 50, 3, symbol="BBB"))
+        engine.submit_order(limit(Side.BUY, 50, 3, symbol="BBB"))
+
+        self.assertEqual(len(engine.trade_history()), 2)
+        self.assertEqual(len(engine.trade_history(symbol="AAA")), 1)
+        self.assertEqual(engine.trade_history(symbol="AAA")[0].symbol, "AAA")
+
+    def test_returned_history_is_a_copy(self):
+        engine = MatchingEngine()
+        engine.submit_order(limit(Side.SELL, 100, 5))
+        engine.submit_order(limit(Side.BUY, 100, 5))
+
+        history = engine.trade_history()
+        history.clear()  # mutating the returned list...
+
+        self.assertEqual(len(engine.trade_history()), 1)  # ...must not affect the engine
+
+
+class TestTradeSubscribers(unittest.TestCase):
+    def test_listener_is_called_synchronously_for_each_trade(self):
+        engine = MatchingEngine()
+        received = []
+        engine.on_trade(received.append)
+
+        engine.submit_order(limit(Side.SELL, 100, 5))
+        self.assertEqual(received, [])  # no trade yet, nothing to publish
+
+        engine.submit_order(limit(Side.BUY, 100, 5))
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0].price, 100)
+
+    def test_multiple_listeners_all_receive_the_trade(self):
+        engine = MatchingEngine()
+        a, b = [], []
+        engine.on_trade(a.append)
+        engine.on_trade(b.append)
+
+        engine.submit_order(limit(Side.SELL, 100, 5))
+        engine.submit_order(limit(Side.BUY, 100, 5))
+
+        self.assertEqual(len(a), 1)
+        self.assertEqual(len(b), 1)
+
+    def test_off_trade_unsubscribes(self):
+        engine = MatchingEngine()
+        received = []
+        engine.on_trade(received.append)
+        self.assertTrue(engine.off_trade(received.append))
+
+        engine.submit_order(limit(Side.SELL, 100, 5))
+        engine.submit_order(limit(Side.BUY, 100, 5))
+
+        self.assertEqual(received, [])
+
+    def test_off_trade_on_unregistered_listener_returns_false(self):
+        engine = MatchingEngine()
+        self.assertFalse(engine.off_trade(lambda trade: None))
+
+    def test_broken_listener_does_not_break_matching_or_other_listeners(self):
+        engine = MatchingEngine()
+        received = []
+
+        def broken_listener(trade):
+            raise RuntimeError("boom")
+
+        engine.on_trade(broken_listener)
+        engine.on_trade(received.append)
+
+        with self.assertWarns(RuntimeWarning):
+            trades = engine.submit_order(limit(Side.SELL, 100, 5))
+            trades += engine.submit_order(limit(Side.BUY, 100, 5))
+
+        self.assertEqual(len(trades), 1)  # matching still succeeded
+        self.assertEqual(len(received), 1)  # the other listener still ran
 
 
 if __name__ == "__main__":
