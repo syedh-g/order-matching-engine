@@ -1,7 +1,6 @@
 """Core data models: Order, Trade, and their supporting enums."""
 from __future__ import annotations
 
-import itertools
 from dataclasses import dataclass, field
 from enum import Enum
 from time import time_ns
@@ -25,9 +24,6 @@ class OrderStatus(Enum):
     CANCELLED = "CANCELLED"
 
 
-_id_counter = itertools.count(1)
-
-
 @dataclass
 class Order:
     """A single buy or sell order.
@@ -35,6 +31,9 @@ class Order:
     Limit orders must carry a price and rest on the book if not fully
     filled. Market orders must not carry a price; any quantity left
     unfilled after matching is discarded rather than resting on the book.
+
+    Leave `id` as None to have the MatchingEngine assign one on submission;
+    an explicit id must be unique within that engine.
     """
 
     side: Side
@@ -42,7 +41,7 @@ class Order:
     quantity: float
     price: Optional[float] = None
     symbol: str = "DEFAULT"
-    id: int = field(default_factory=lambda: next(_id_counter))
+    id: Optional[int] = None
     timestamp: int = field(default_factory=time_ns)
     remaining: float = field(init=False)
     status: OrderStatus = field(default=OrderStatus.OPEN, init=False)
