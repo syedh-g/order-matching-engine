@@ -44,8 +44,9 @@ def main() -> None:
 
     print("2) A crossing limit buy order eats into the ask side (price-time priority)")
     order = Order(side=Side.BUY, order_type=OrderType.LIMIT, price=101, quantity=3, symbol=symbol)
+    trades = engine.submit_order(order)
     print(f"  submit {order.side.value} {order.quantity} @ {order.price} -> id {order.id}")
-    print_trades(engine.submit_order(order))
+    print_trades(trades)
     print_book(engine, symbol)
 
     print("3) A market sell order sweeps the best available bids")

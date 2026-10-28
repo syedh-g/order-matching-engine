@@ -33,6 +33,10 @@ class OrderBook:
         """Match an incoming order against the book, resting any remainder."""
         if order.symbol != self.symbol:
             raise ValueError(f"Order symbol {order.symbol!r} does not match book {self.symbol!r}")
+        if order.id is None:
+            raise ValueError("Order has no id; submit it through MatchingEngine to have one assigned")
+        if order.id in self._orders:
+            raise ValueError(f"Order id {order.id} is already resting on this book")
 
         trades = self._match(order)
 

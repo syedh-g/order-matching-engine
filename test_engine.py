@@ -175,6 +175,58 @@ class TestMultiSymbol(unittest.TestCase):
         self.assertEqual(engine.order_book("BBB").best_bid(), 100)
 
 
+class TestOrderIds(unittest.TestCase):
+    def test_ids_are_assigned_on_submit_per_engine(self):
+        a, b = MatchingEngine(), MatchingEngine()
+        first_a, first_b = limit(Side.BUY, 99, 1), limit(Side.BUY, 99, 1)
+        self.assertIsNone(first_a.id)
+
+        a.submit_order(first_a)
+        b.submit_order(first_b)
+
+        self.assertEqual(first_a.id, 1)
+        self.assertEqual(first_b.id, 1)  # engines don't share a counter
+
+    def test_duplicate_explicit_id_is_rejected(self):
+        engine = MatchingEngine()
+        original = Order(side=Side.BUY, order_type=OrderType.LIMIT, price=99, quantity=5, symbol="TEST", id=7)
+        engine.submit_order(original)
+
+        duplicate = Order(side=Side.BUY, order_type=OrderType.LIMIT, price=98, quantity=5, symbol="TEST", id=7)
+        with self.assertRaises(ValueError):
+            engine.submit_order(duplicate)
+
+        self.assertEqual(engine.depth("TEST")["bids"], [(99, 5)])
+        self.assertTrue(engine.cancel_order("TEST", 7))
+        self.assertEqual(original.status, OrderStatus.CANCELLED)
+
+    def test_id_of_filled_order_cannot_be_reused(self):
+        engine = MatchingEngine()
+        sell = limit(Side.SELL, 100, 5)
+        engine.submit_order(sell)
+        engine.submit_order(limit(Side.BUY, 100, 5))
+
+        reuse = Order(side=Side.SELL, order_type=OrderType.LIMIT, price=100, quantity=1, symbol="TEST", id=sell.id)
+        with self.assertRaises(ValueError):
+            engine.submit_order(reuse)
+
+    def test_resubmitting_the_same_order_is_rejected(self):
+        engine = MatchingEngine()
+        order = limit(Side.BUY, 99, 5)
+        engine.submit_order(order)
+
+        with self.assertRaises(ValueError):
+            engine.submit_order(order)
+
+    def test_assigned_ids_skip_explicitly_supplied_ones(self):
+        engine = MatchingEngine()
+        engine.submit_order(Order(side=Side.BUY, order_type=OrderType.LIMIT, price=99, quantity=1, symbol="TEST", id=1))
+        auto = limit(Side.BUY, 99, 1)
+        engine.submit_order(auto)
+
+        self.assertEqual(auto.id, 2)
+
+
 class TestTradeIsImmutable(unittest.TestCase):
     def test_trade_fields_cannot_be_reassigned(self):
         engine = MatchingEngine()

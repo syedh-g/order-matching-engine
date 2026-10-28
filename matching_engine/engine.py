@@ -1,8 +1,9 @@
 """Top-level matching engine, routing orders to per-symbol order books."""
 from __future__ import annotations
 
+import itertools
 import warnings
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Set
 
 from .models import Order, Trade
 from .order_book import OrderBook
@@ -22,15 +23,31 @@ class MatchingEngine:
 
     `Trade` itself is a frozen dataclass, so once published a trade record
     can't be altered by a subscriber or by code holding a stale reference.
+
+    Order ids are unique per engine: an order submitted without an id gets
+    the next one from this engine's own counter, and an id that has already
+    been submitted (resting, filled, or cancelled) is rejected.
     """
 
     def __init__(self) -> None:
         self._books: Dict[str, OrderBook] = {}
         self._trade_log: List[Trade] = []
         self._listeners: List[TradeListener] = []
+        self._id_counter = itertools.count(1)
+        self._used_ids: Set[int] = set()
 
     def submit_order(self, order: Order) -> List[Trade]:
-        """Submit an order for matching. Returns any trades it generated."""
+        """Submit an order for matching. Returns any trades it generated.
+
+        Assigns `order.id` if it is None. Raises ValueError if the id has
+        already been used on this engine.
+        """
+        if order.id is None:
+            order.id = self._next_id()
+        elif order.id in self._used_ids:
+            raise ValueError(f"Duplicate order id {order.id}")
+        self._used_ids.add(order.id)
+
         trades = self._book_for(order.symbol).submit(order)
         for trade in trades:
             self._publish(trade)
@@ -91,6 +108,13 @@ class MatchingEngine:
                 # One broken subscriber must not stop other subscribers
                 # from being notified, or break matching for the caller.
                 warnings.warn(f"on_trade listener {listener!r} raised {exc!r}", RuntimeWarning)
+
+    def _next_id(self) -> int:
+        # Skip any id a caller has already supplied explicitly.
+        while True:
+            order_id = next(self._id_counter)
+            if order_id not in self._used_ids:
+                return order_id
 
     def _book_for(self, symbol: str) -> OrderBook:
         if symbol not in self._books:
